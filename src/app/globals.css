@@ -1,26 +1,41 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Base typography */
+@layer base {
+  h1 { @apply text-2xl font-bold tracking-tight; }
+  h2 { @apply text-xl font-semibold; }
+  p  { @apply leading-relaxed; }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  input, textarea, select {
+    @apply w-full rounded-lg border border-gray-300 bg-white px-3 py-2 outline-none;
+  }
+  input:focus, textarea:focus, select:focus {
+    @apply ring-2 ring-gray-900/20 border-gray-400;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Reusable UI classes */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition;
+  }
+  .btn-primary {
+    @apply bg-gray-900 text-white hover:bg-gray-800;
+  }
+  .btn-secondary {
+    @apply border border-gray-300 bg-white hover:bg-gray-50;
+  }
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700;
+  }
+
+  .card {
+    @apply rounded-2xl border border-gray-200 bg-white shadow-sm;
+  }
+  .card-header {
+    @apply px-5 pt-5;
+  }
+  .card-body {
+    @apply px-5 pb-5;
+  }
 }
