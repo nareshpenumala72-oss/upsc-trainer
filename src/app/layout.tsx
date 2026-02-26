@@ -22,6 +22,11 @@ export default function RootLayout({
             </Link>
 
 <nav className="flex items-center gap-4 text-sm">
+
+    <Link className="hover:underline" href="/practice">
+  Practice
+</Link>
+
   <Link className="hover:underline" href="/dashboard">
     Dashboard
   </Link>
@@ -37,6 +42,8 @@ export default function RootLayout({
   <Link className="hover:underline" href="/register">
     Register
   </Link>
+
+
 </nav>
           </div>
         </header>
