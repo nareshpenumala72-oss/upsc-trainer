@@ -225,6 +225,21 @@ export default function DailyModulePage() {
 
         {/* MCQs */}
         <h2 className="text-xl font-semibold mt-6">MCQs</h2>
+        <div className="mt-2 text-sm text-gray-600">
+  Answered {Object.keys(answers).length} of {mcqs.length}
+</div>
+
+<div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+  <div
+    className="bg-gray-900 h-2 rounded-full transition-all"
+    style={{
+      width:
+        mcqs.length > 0
+          ? `${(Object.keys(answers).length / mcqs.length) * 100}%`
+          : "0%",
+    }}
+  />
+</div>
         <div className="mt-4 space-y-4">
           {mcqs.map((q, idx) => (
             <div key={q.id} className="bg-white p-4 rounded-xl shadow">
@@ -244,8 +259,14 @@ export default function DailyModulePage() {
                       : q.option_d;
 
                   return (
-                    <label key={opt} className="flex gap-2 items-center">
-                      <input
+<label
+  key={opt}
+  className={`flex gap-3 items-start p-3 rounded-lg border cursor-pointer transition ${
+    answers[q.id] === opt
+      ? "border-gray-900 bg-gray-100"
+      : "border-gray-200 hover:bg-gray-50"
+  }`}
+>                      <input
                         type="radio"
                         name={q.id}
                         checked={answers[q.id] === opt}
@@ -262,13 +283,21 @@ export default function DailyModulePage() {
           ))}
         </div>
 
-        <button
-          onClick={submitMCQs}
-          disabled={!allAnswered}
-          className="mt-6 bg-black text-white px-4 py-2 rounded disabled:opacity-50"
-        >
-          Submit MCQs (Unlock Explanations)
-        </button>
+<div className="sticky bottom-0 bg-white border-t p-4 mt-8">
+  <div className="max-w-4xl mx-auto flex justify-between items-center">
+    <div className="text-sm">
+      {Object.keys(answers).length} / {mcqs.length} answered
+    </div>
+
+    <button
+      onClick={submitMCQs}
+      disabled={!allAnswered}
+      className="btn btn-primary disabled:opacity-50"
+    >
+      Submit MCQs
+    </button>
+  </div>
+</div>
 
         {/* MAINS */}
         <h2 className="text-xl font-semibold mt-10">Mains Answer Writing</h2>
