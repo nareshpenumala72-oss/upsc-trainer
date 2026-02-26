@@ -21,17 +21,23 @@ export default function RootLayout({
               UPSC Daily Trainer
             </Link>
 
-            <nav className="flex items-center gap-4 text-sm">
-              <Link className="hover:underline" href="/dashboard">
-                Dashboard
-              </Link>
-              <Link className="hover:underline" href="/admin/mcqs">
-                Admin
-              </Link>
-              <Link className="hover:underline" href="/login">
-                Login
-              </Link>
-            </nav>
+<nav className="flex items-center gap-4 text-sm">
+  <Link className="hover:underline" href="/dashboard">
+    Dashboard
+  </Link>
+
+  <Link className="hover:underline" href="/admin/mcqs">
+    Admin
+  </Link>
+
+  <Link className="hover:underline" href="/login">
+    Login
+  </Link>
+
+  <Link className="hover:underline" href="/register">
+    Register
+  </Link>
+</nav>
           </div>
         </header>
 
