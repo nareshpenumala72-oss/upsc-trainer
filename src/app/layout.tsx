@@ -43,6 +43,10 @@ export default function RootLayout({
     Register
   </Link>
 
+  <Link className="hover:underline" href="/archive">
+  Archive
+</Link>
+
 
 </nav>
           </div>
