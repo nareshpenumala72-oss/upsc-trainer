@@ -1,43 +1,65 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import AuthGuard from "@/components/AuthGuard";
 import AdminGuard from "@/components/AdminGuard";
+import { supabase } from "@/lib/supabaseClient";
+
+type GsPaper = "GS1" | "GS2" | "GS3" | "GS4";
+const GS_OPTIONS: GsPaper[] = ["GS1", "GS2", "GS3", "GS4"];
+
+function parseKeywords(input: string): string[] {
+  const arr = input
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  return arr;
+}
 
 export default function AdminMainsPage() {
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const [gsPaper, setGsPaper] = useState<GsPaper>("GS2");
   const [question, setQuestion] = useState("");
   const [demand, setDemand] = useState("");
-  const [keywords, setKeywords] = useState("GS2, governance");
+  const [keywords, setKeywords] = useState(""); // comma separated
+
   const [intro, setIntro] = useState("");
   const [body, setBody] = useState("");
   const [conclusion, setConclusion] = useState("");
   const [valueAdd, setValueAdd] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  async function addMains() {
     setMsg(null);
 
-    const kw = keywords
-      .split(",")
-      .map((k) => k.trim())
-      .filter(Boolean);
+    if (!question.trim()) return setMsg("Question is required.");
+    if (!gsPaper) return setMsg("GS Paper is required.");
+
+    setLoading(true);
 
     const { error } = await supabase.from("mains_questions").insert({
+      gs_paper: gsPaper,
       question,
-      demand,
-      keywords: kw,
-      structure_intro: intro,
-      structure_body: body,
-      structure_conclusion: conclusion,
-      value_add: valueAdd,
+      demand: demand.trim() ? demand : null,
+      keywords: keywords.trim() ? parseKeywords(keywords) : null,
+      structure_intro: intro.trim() ? intro : null,
+      structure_body: body.trim() ? body : null,
+      structure_conclusion: conclusion.trim() ? conclusion : null,
+      value_add: valueAdd.trim() ? valueAdd : null,
     });
+
+    setLoading(false);
 
     if (error) return setMsg("❌ " + error.message);
 
-    setMsg("✅ Mains question saved!");
+    setMsg("✅ Mains question added successfully!");
+
+    // reset
+    setGsPaper("GS2");
     setQuestion("");
     setDemand("");
+    setKeywords("");
     setIntro("");
     setBody("");
     setConclusion("");
@@ -45,96 +67,126 @@ export default function AdminMainsPage() {
   }
 
   return (
-    <AdminGuard>
-      <main className="max-w-3xl mx-auto p-6">
-        <h1 className="text-2xl font-bold">Admin • Add Mains Question</h1>
+    <AuthGuard>
+      <AdminGuard>
+        <main className="max-w-4xl mx-auto p-6">
+          <h1 className="text-2xl font-bold mb-4">Admin: Add Mains Question</h1>
 
-        <form
-          onSubmit={save}
-          className="mt-6 space-y-4 bg-white p-5 rounded-xl shadow"
-        >
-          <div>
-            <label className="block text-sm font-medium">Question</label>
-            <textarea
-              className="mt-1 w-full border rounded-lg p-2"
-              rows={3}
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              required
-            />
+          {msg && (
+            <div className="mb-4 card card-body">
+              <p>{msg}</p>
+            </div>
+          )}
+
+          <div className="card card-body space-y-4">
+            {/* GS Paper */}
+            <div>
+              <label className="text-sm text-gray-600">GS Paper</label>
+              <select
+                className="w-full mt-1"
+                value={gsPaper}
+                onChange={(e) => setGsPaper(e.target.value as GsPaper)}
+              >
+                {GS_OPTIONS.map((x) => (
+                  <option key={x} value={x}>
+                    {x}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Question */}
+            <div>
+              <label className="text-sm text-gray-600">Question</label>
+              <textarea
+                className="w-full mt-1"
+                rows={4}
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Enter mains question..."
+              />
+            </div>
+
+            {/* Demand */}
+            <div>
+              <label className="text-sm text-gray-600">Demand (optional)</label>
+              <textarea
+                className="w-full mt-1"
+                rows={2}
+                value={demand}
+                onChange={(e) => setDemand(e.target.value)}
+                placeholder="What exactly the examiner is asking..."
+              />
+            </div>
+
+            {/* Keywords */}
+            <div>
+              <label className="text-sm text-gray-600">
+                Keywords (optional, comma separated)
+              </label>
+              <input
+                className="w-full mt-1"
+                value={keywords}
+                onChange={(e) => setKeywords(e.target.value)}
+                placeholder="e.g. federalism, cooperative, finance commission"
+              />
+            </div>
+
+            <hr />
+
+            {/* Model structure hints */}
+            <div className="grid gap-3">
+              <div>
+                <label className="text-sm text-gray-600">Intro Hint (optional)</label>
+                <textarea
+                  className="w-full mt-1"
+                  rows={2}
+                  value={intro}
+                  onChange={(e) => setIntro(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-600">Body Hint (optional)</label>
+                <textarea
+                  className="w-full mt-1"
+                  rows={3}
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-600">Conclusion Hint (optional)</label>
+                <textarea
+                  className="w-full mt-1"
+                  rows={2}
+                  value={conclusion}
+                  onChange={(e) => setConclusion(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-600">Value Add (optional)</label>
+                <textarea
+                  className="w-full mt-1"
+                  rows={2}
+                  value={valueAdd}
+                  onChange={(e) => setValueAdd(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <button
+              className="btn btn-primary"
+              onClick={addMains}
+              disabled={loading}
+            >
+              {loading ? "Saving..." : "Add Mains Question"}
+            </button>
           </div>
-
-          <div>
-            <label className="block text-sm font-medium">Demand</label>
-            <input
-              className="mt-1 w-full border rounded-lg p-2"
-              value={demand}
-              onChange={(e) => setDemand(e.target.value)}
-              placeholder="What examiner is asking"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium">Keywords (comma)</label>
-            <input
-              className="mt-1 w-full border rounded-lg p-2"
-              value={keywords}
-              onChange={(e) => setKeywords(e.target.value)}
-              placeholder="GS2, governance, federalism"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium">Structure • Intro</label>
-            <textarea
-              className="mt-1 w-full border rounded-lg p-2"
-              rows={2}
-              value={intro}
-              onChange={(e) => setIntro(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium">Structure • Body</label>
-            <textarea
-              className="mt-1 w-full border rounded-lg p-2"
-              rows={4}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="Headings / bullet plan"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium">
-              Structure • Conclusion
-            </label>
-            <textarea
-              className="mt-1 w-full border rounded-lg p-2"
-              rows={2}
-              value={conclusion}
-              onChange={(e) => setConclusion(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium">Value Add</label>
-            <textarea
-              className="mt-1 w-full border rounded-lg p-2"
-              rows={3}
-              value={valueAdd}
-              onChange={(e) => setValueAdd(e.target.value)}
-              placeholder="data/examples/schemes/case studies"
-            />
-          </div>
-
-          <button className="bg-black text-white px-4 py-2 rounded-lg">
-            Save Mains Question
-          </button>
-
-          {msg && <p className="text-sm mt-2">{msg}</p>}
-        </form>
-      </main>
-    </AdminGuard>
+        </main>
+      </AdminGuard>
+    </AuthGuard>
   );
 }
