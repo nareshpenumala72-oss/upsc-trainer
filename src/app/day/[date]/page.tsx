@@ -31,9 +31,11 @@ type CurrentAffair = {
   id: string;
   title: string;
   summary: string;
-  gs_tags: string; // IMPORTANT: this matches your column name
+  gs_tags: string;
   date: string;
 };
+
+type DailySetRow = { id: string; date: string };
 
 function wordCount(text: string) {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
@@ -42,10 +44,9 @@ function wordCount(text: string) {
 export default function DailyModulePage() {
   const params = useParams<{ date: string }>();
   const router = useRouter();
-  const date = params.date;
+  const date = params.date; // YYYY-MM-DD
 
   const [dailySetId, setDailySetId] = useState<string | null>(null);
-
   const [currentAffair, setCurrentAffair] = useState<CurrentAffair | null>(null);
 
   const [mcqs, setMcqs] = useState<MCQ[]>([]);
@@ -59,23 +60,65 @@ export default function DailyModulePage() {
 
   const [msg, setMsg] = useState<string | null>(null);
 
+  // NAV: all available daily set dates
+  const [allDates, setAllDates] = useState<string[]>([]);
+  const [prevDate, setPrevDate] = useState<string | null>(null);
+  const [nextDate, setNextDate] = useState<string | null>(null);
+
   // 20 min timer
   const TOTAL_SECONDS = 20 * 60;
   const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS);
   const timerRef = useRef<number | null>(null);
 
   const answeredCount = useMemo(() => Object.keys(answers).length, [answers]);
-
   const allAnswered = useMemo(
     () => mcqs.length > 0 && mcqs.every((q) => answers[q.id]),
     [mcqs, answers]
   );
 
+  // NAV: fetch list of available dates (from daily_sets)
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from("daily_sets")
+        .select("date")
+        .order("date", { ascending: true });
+
+      if (error) return;
+
+      const dates = (data || []).map((d: any) => d.date as string);
+      setAllDates(dates);
+    })();
+  }, []);
+
+  // NAV: compute prev/next based on current date
+  useEffect(() => {
+    if (allDates.length === 0) {
+      setPrevDate(null);
+      setNextDate(null);
+      return;
+    }
+
+    const idx = allDates.indexOf(date);
+    if (idx === -1) {
+      setPrevDate(null);
+      setNextDate(null);
+      return;
+    }
+
+    setPrevDate(idx > 0 ? allDates[idx - 1] : null);
+    setNextDate(idx < allDates.length - 1 ? allDates[idx + 1] : null);
+  }, [allDates, date]);
+
+  // Load the day content
   useEffect(() => {
     (async () => {
       setMsg(null);
+      setAnswers({});
+      setMainsAnswer("");
+      setSecondsLeft(TOTAL_SECONDS);
 
-      // 1) Fetch daily_set for this date
+      // 1) daily set
       const { data: ds, error: dsErr } = await supabase
         .from("daily_sets")
         .select("id")
@@ -88,22 +131,25 @@ export default function DailyModulePage() {
       }
       if (!ds) {
         setMsg(`No daily set found for this date: ${date}`);
+        setDailySetId(null);
+        setMcqs([]);
+        setMains(null);
+        setCurrentAffair(null);
         return;
       }
 
       setDailySetId(ds.id);
 
-      // 2) Fetch current affairs card for this date
-      const { data: ca, error: caErr } = await supabase
+      // 2) current affairs for this date (optional)
+      const { data: ca } = await supabase
         .from("current_affairs")
         .select("id,title,summary,gs_tags,date")
         .eq("date", date)
         .maybeSingle();
 
-      if (!caErr) setCurrentAffair(ca as CurrentAffair);
-      // if error, we silently ignore (no CA shown)
+      setCurrentAffair((ca as CurrentAffair) || null);
 
-      // 3) Fetch daily_set_items (mcq + mains IDs)
+      // 3) items
       const { data: items, error: itErr } = await supabase
         .from("daily_set_items")
         .select("item_type, item_id")
@@ -120,7 +166,7 @@ export default function DailyModulePage() {
 
       const mainsId = (items ?? []).find((x) => x.item_type === "mains")?.item_id;
 
-      // 4) Fetch MCQs
+      // 4) mcqs
       if (mcqIds.length > 0) {
         const { data: qData, error: qErr } = await supabase
           .from("mcqs")
@@ -134,14 +180,13 @@ export default function DailyModulePage() {
           return;
         }
 
-        // keep order same as daily_set_items
         const map = new Map((qData ?? []).map((q: any) => [q.id, q]));
         setMcqs(mcqIds.map((id) => map.get(id)).filter(Boolean) as MCQ[]);
       } else {
         setMcqs([]);
       }
 
-      // 5) Fetch Mains question
+      // 5) mains
       if (mainsId) {
         const { data: mData, error: mErr } = await supabase
           .from("mains_questions")
@@ -152,6 +197,7 @@ export default function DailyModulePage() {
           .single();
 
         if (!mErr) setMains(mData as MainsQ);
+        else setMains(null);
       } else {
         setMains(null);
       }
@@ -159,8 +205,14 @@ export default function DailyModulePage() {
 
     return () => {
       if (timerRef.current) window.clearInterval(timerRef.current);
+      timerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
+
+  function goToDate(d: string) {
+    router.push(`/day/${d}`);
+  }
 
   function choose(mcqId: string, opt: "A" | "B" | "C" | "D") {
     setAnswers((prev) => ({ ...prev, [mcqId]: opt }));
@@ -243,7 +295,6 @@ export default function DailyModulePage() {
     });
 
     if (error) return setMainsMsg("❌ " + error.message);
-
     setMainsMsg("✅ Mains answer submitted!");
   }
 
@@ -253,10 +304,51 @@ export default function DailyModulePage() {
   return (
     <AuthGuard>
       <main className="max-w-4xl mx-auto p-6">
-        <h1 className="text-2xl font-bold">Daily Module: {date}</h1>
+        {/* Top bar navigation */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold">Daily Module</h1>
+            <div className="text-sm text-gray-600">Date: {date}</div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="btn btn-secondary"
+              onClick={() => prevDate && goToDate(prevDate)}
+              disabled={!prevDate}
+            >
+              ← Previous
+            </button>
+
+            <select
+              value={date}
+              onChange={(e) => goToDate(e.target.value)}
+              className="w-auto"
+            >
+              {allDates.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+
+            <button
+              className="btn btn-secondary"
+              onClick={() => nextDate && goToDate(nextDate)}
+              disabled={!nextDate}
+            >
+              Next →
+            </button>
+
+            <a className="btn btn-secondary" href="/archive">
+              Archive
+            </a>
+          </div>
+        </div>
+
         {msg && <p className="mt-3 text-red-600">{msg}</p>}
 
-        {/* Current Affairs Card */}
+        {/* Current Affairs */}
         {currentAffair && (
           <div className="card card-body mt-6">
             <div className="text-sm text-gray-500">{currentAffair.gs_tags}</div>
@@ -269,7 +361,6 @@ export default function DailyModulePage() {
 
         {/* MCQs */}
         <h2 className="text-xl font-semibold mt-8">MCQs</h2>
-
         <div className="mt-2 text-sm text-gray-600">
           Answered {answeredCount} of {mcqs.length}
         </div>
@@ -328,7 +419,7 @@ export default function DailyModulePage() {
           ))}
         </div>
 
-        {/* Sticky Submit bar */}
+        {/* Sticky Submit */}
         <div className="sticky bottom-0 bg-white border-t p-4 mt-8">
           <div className="max-w-4xl mx-auto flex justify-between items-center">
             <div className="text-sm">
@@ -349,9 +440,7 @@ export default function DailyModulePage() {
         <h2 className="text-xl font-semibold mt-10">Mains Answer Writing</h2>
 
         {!mains ? (
-          <p className="mt-3 text-gray-600">
-            No mains question added for this day yet.
-          </p>
+          <p className="mt-3 text-gray-600">No mains question added for this day yet.</p>
         ) : (
           <div className="mt-4 card card-body space-y-3">
             <div className="font-semibold">{mains.question}</div>
@@ -379,7 +468,6 @@ export default function DailyModulePage() {
             </div>
 
             <textarea
-              className="w-full border rounded-lg p-2"
               rows={10}
               value={mainsAnswer}
               onChange={(e) => setMainsAnswer(e.target.value)}
@@ -391,35 +479,6 @@ export default function DailyModulePage() {
             </button>
 
             {mainsMsg && <p className="text-sm mt-2">{mainsMsg}</p>}
-
-            {/* Hints (optional) */}
-            <details className="mt-2">
-              <summary className="cursor-pointer text-sm font-medium">
-                Show model structure hints
-              </summary>
-              <div className="mt-2 text-sm space-y-2">
-                {mains.structure_intro && (
-                  <p>
-                    <b>Intro:</b> {mains.structure_intro}
-                  </p>
-                )}
-                {mains.structure_body && (
-                  <p>
-                    <b>Body:</b> {mains.structure_body}
-                  </p>
-                )}
-                {mains.structure_conclusion && (
-                  <p>
-                    <b>Conclusion:</b> {mains.structure_conclusion}
-                  </p>
-                )}
-                {mains.value_add && (
-                  <p>
-                    <b>Value add:</b> {mains.value_add}
-                  </p>
-                )}
-              </div>
-            </details>
           </div>
         )}
       </main>
