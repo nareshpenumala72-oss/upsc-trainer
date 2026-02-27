@@ -48,7 +48,7 @@ export default function RootLayout({
 </Link>
 
   <Link className="hover:underline" href="/current-affairs">
-  Archive
+  current-affairs
 </Link>
 
 
