@@ -135,6 +135,18 @@ export default function DashboardPage() {
             Open Archive
           </a>
         </div>
+
+        <div className="mt-8 grid md:grid-cols-2 gap-4">
+  <a className="card card-body hover:bg-gray-50 transition" href="/practice">
+    <div className="text-lg font-semibold">📝 Practice</div>
+    <div className="text-sm text-gray-600">Choose date, attempt MCQs + Mains</div>
+  </a>
+
+  <a className="card card-body hover:bg-gray-50 transition" href="/current-affairs">
+    <div className="text-lg font-semibold">🗞️ Current Affairs</div>
+    <div className="text-sm text-gray-600">Browse date-wise CA notes</div>
+  </a>
+</div>
       </main>
     </AuthGuard>
   );

@@ -47,6 +47,10 @@ export default function RootLayout({
   Archive
 </Link>
 
+  <Link className="hover:underline" href="/current-affairs">
+  Archive
+</Link>
+
 
 </nav>
           </div>
