@@ -1,9 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import AuthGuard from "@/components/AuthGuard";
+import { supabase } from "@/lib/supabaseClient";
+
+type GsFilter = "All" | "GS1" | "GS2" | "GS3" | "GS4";
+const GS_OPTIONS: GsFilter[] = ["All", "GS1", "GS2", "GS3", "GS4"];
+
+type DailySetRow = { id: string; date: string };
 
 type MCQ = {
   id: string;
@@ -14,6 +19,7 @@ type MCQ = {
   option_d: string;
   correct_option: "A" | "B" | "C" | "D";
   explanation: string;
+  gs_paper: string | null;
 };
 
 type MainsQ = {
@@ -25,17 +31,17 @@ type MainsQ = {
   structure_body: string | null;
   structure_conclusion: string | null;
   value_add: string | null;
+  gs_paper: string | null;
 };
 
 type CurrentAffair = {
   id: string;
   title: string;
   summary: string;
-  gs_tags: string;
+  gs_tags: string | null;
+  gs_paper: string | null;
   date: string;
 };
-
-type DailySetRow = { id: string; date: string };
 
 function wordCount(text: string) {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
@@ -44,39 +50,38 @@ function wordCount(text: string) {
 export default function DailyModulePage() {
   const params = useParams<{ date: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
   const date = params.date; // YYYY-MM-DD
 
-  const [dailySetId, setDailySetId] = useState<string | null>(null);
-  const [currentAffair, setCurrentAffair] = useState<CurrentAffair | null>(null);
+  const qsGs = (searchParams.get("gs") || "All") as GsFilter;
+  const [gs, setGs] = useState<GsFilter>(GS_OPTIONS.includes(qsGs) ? qsGs : "All");
 
-  const [mcqs, setMcqs] = useState<MCQ[]>([]);
-  const [answers, setAnswers] = useState<Record<string, "A" | "B" | "C" | "D">>(
-    {}
-  );
-
-  const [mains, setMains] = useState<MainsQ | null>(null);
-  const [mainsAnswer, setMainsAnswer] = useState("");
-  const [mainsMsg, setMainsMsg] = useState<string | null>(null);
-
-  const [msg, setMsg] = useState<string | null>(null);
-
-  // NAV: all available daily set dates
   const [allDates, setAllDates] = useState<string[]>([]);
   const [prevDate, setPrevDate] = useState<string | null>(null);
   const [nextDate, setNextDate] = useState<string | null>(null);
 
-  // 20 min timer
+  const [dailySetId, setDailySetId] = useState<string | null>(null);
+
+  const [currentAffairs, setCurrentAffairs] = useState<CurrentAffair[]>([]);
+  const [mcqs, setMcqs] = useState<MCQ[]>([]);
+  const [mains, setMains] = useState<MainsQ | null>(null);
+
+  const [answers, setAnswers] = useState<Record<string, "A" | "B" | "C" | "D">>(
+    {}
+  );
+  const [msg, setMsg] = useState<string | null>(null);
+
+  // Mains answer box
+  const [mainsAnswer, setMainsAnswer] = useState("");
+  const [mainsMsg, setMainsMsg] = useState<string | null>(null);
+
+  // Timer
   const TOTAL_SECONDS = 20 * 60;
   const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS);
   const timerRef = useRef<number | null>(null);
 
-  const answeredCount = useMemo(() => Object.keys(answers).length, [answers]);
-  const allAnswered = useMemo(
-    () => mcqs.length > 0 && mcqs.every((q) => answers[q.id]),
-    [mcqs, answers]
-  );
-
-  // NAV: fetch list of available dates (from daily_sets)
+  // Fetch list of all available dates (for dropdown + prev/next)
   useEffect(() => {
     (async () => {
       const { data, error } = await supabase
@@ -84,41 +89,52 @@ export default function DailyModulePage() {
         .select("date")
         .order("date", { ascending: true });
 
-      if (error) return;
-
-      const dates = (data || []).map((d: any) => d.date as string);
-      setAllDates(dates);
+      if (!error) {
+        const dates = (data || []).map((d: any) => d.date as string);
+        setAllDates(dates);
+      }
     })();
   }, []);
 
-  // NAV: compute prev/next based on current date
+  // Compute prev/next for current date
   useEffect(() => {
     if (allDates.length === 0) {
       setPrevDate(null);
       setNextDate(null);
       return;
     }
-
     const idx = allDates.indexOf(date);
     if (idx === -1) {
       setPrevDate(null);
       setNextDate(null);
       return;
     }
-
     setPrevDate(idx > 0 ? allDates[idx - 1] : null);
     setNextDate(idx < allDates.length - 1 ? allDates[idx + 1] : null);
   }, [allDates, date]);
 
-  // Load the day content
+  // Keep URL in sync when user changes gs filter
+  useEffect(() => {
+    const url = `/day/${date}?gs=${gs}`;
+    // replace so back button is clean
+    router.replace(url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gs]);
+
+  // Load day content (daily set + CA + MCQs + mains)
   useEffect(() => {
     (async () => {
       setMsg(null);
       setAnswers({});
       setMainsAnswer("");
+      setMainsMsg(null);
       setSecondsLeft(TOTAL_SECONDS);
+      if (timerRef.current) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
 
-      // 1) daily set
+      // 1) Get daily set
       const { data: ds, error: dsErr } = await supabase
         .from("daily_sets")
         .select("id")
@@ -130,26 +146,29 @@ export default function DailyModulePage() {
         return;
       }
       if (!ds) {
-        setMsg(`No daily set found for this date: ${date}`);
         setDailySetId(null);
         setMcqs([]);
         setMains(null);
-        setCurrentAffair(null);
+        setCurrentAffairs([]);
+        setMsg(`No daily set found for this date: ${date}`);
         return;
       }
 
       setDailySetId(ds.id);
 
-      // 2) current affairs for this date (optional)
-      const { data: ca } = await supabase
+      // 2) Fetch current affairs for date (can be multiple). Filter by GS if selected.
+      let caQuery = supabase
         .from("current_affairs")
-        .select("id,title,summary,gs_tags,date")
+        .select("id,title,summary,gs_tags,gs_paper,date")
         .eq("date", date)
-        .maybeSingle();
+        .order("created_at", { ascending: true });
 
-      setCurrentAffair((ca as CurrentAffair) || null);
+      if (gs !== "All") caQuery = caQuery.eq("gs_paper", gs);
 
-      // 3) items
+      const { data: caData } = await caQuery;
+      setCurrentAffairs((caData || []) as CurrentAffair[]);
+
+      // 3) Fetch daily_set_items
       const { data: items, error: itErr } = await supabase
         .from("daily_set_items")
         .select("item_type, item_id")
@@ -164,14 +183,16 @@ export default function DailyModulePage() {
         .filter((x) => x.item_type === "mcq")
         .map((x) => x.item_id);
 
-      const mainsId = (items ?? []).find((x) => x.item_type === "mains")?.item_id;
+      const mainsIds = (items ?? [])
+        .filter((x) => x.item_type === "mains")
+        .map((x) => x.item_id);
 
-      // 4) mcqs
+      // 4) Fetch MCQs (and filter by gs_paper)
       if (mcqIds.length > 0) {
         const { data: qData, error: qErr } = await supabase
           .from("mcqs")
           .select(
-            "id,question,option_a,option_b,option_c,option_d,correct_option,explanation"
+            "id,question,option_a,option_b,option_c,option_d,correct_option,explanation,gs_paper"
           )
           .in("id", mcqIds);
 
@@ -180,24 +201,40 @@ export default function DailyModulePage() {
           return;
         }
 
-        const map = new Map((qData ?? []).map((q: any) => [q.id, q]));
-        setMcqs(mcqIds.map((id) => map.get(id)).filter(Boolean) as MCQ[]);
+        // Keep order same as daily_set_items
+        const map = new Map((qData || []).map((q: any) => [q.id, q]));
+        const ordered = mcqIds
+          .map((id) => map.get(id))
+          .filter(Boolean) as MCQ[];
+
+        const filtered =
+          gs === "All" ? ordered : ordered.filter((m) => m.gs_paper === gs);
+
+        setMcqs(filtered);
       } else {
         setMcqs([]);
       }
 
-      // 5) mains
-      if (mainsId) {
+      // 5) Fetch Mains (pick first that matches GS if filter set)
+      if (mainsIds.length > 0) {
         const { data: mData, error: mErr } = await supabase
           .from("mains_questions")
           .select(
-            "id,question,demand,keywords,structure_intro,structure_body,structure_conclusion,value_add"
+            "id,question,demand,keywords,structure_intro,structure_body,structure_conclusion,value_add,gs_paper"
           )
-          .eq("id", mainsId)
-          .single();
+          .in("id", mainsIds);
 
-        if (!mErr) setMains(mData as MainsQ);
-        else setMains(null);
+        if (!mErr) {
+          const mainsList = (mData || []) as MainsQ[];
+          const pick =
+            gs === "All"
+              ? mainsList[0] || null
+              : mainsList.find((m) => m.gs_paper === gs) || null;
+
+          setMains(pick);
+        } else {
+          setMains(null);
+        }
       } else {
         setMains(null);
       }
@@ -208,10 +245,17 @@ export default function DailyModulePage() {
       timerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date]);
+  }, [date, gs]);
+
+  // Derived counts
+  const answeredCount = useMemo(() => Object.keys(answers).length, [answers]);
+  const allAnswered = useMemo(
+    () => mcqs.length > 0 && mcqs.every((q) => answers[q.id]),
+    [mcqs, answers]
+  );
 
   function goToDate(d: string) {
-    router.push(`/day/${d}`);
+    router.push(`/day/${d}?gs=${gs}`);
   }
 
   function choose(mcqId: string, opt: "A" | "B" | "C" | "D") {
@@ -243,6 +287,7 @@ export default function DailyModulePage() {
     });
     if (aErr) return setMsg(aErr.message);
 
+    // submission marker (avoid duplicate error)
     const { error: sErr } = await supabase
       .from("daily_mcq_submissions")
       .insert({ user_id: userId, daily_set_id: dailySetId });
@@ -251,7 +296,7 @@ export default function DailyModulePage() {
       return setMsg(sErr.message);
     }
 
-    router.push(`/day/${date}/review`);
+    router.push(`/day/${date}/review?gs=${gs}`);
   }
 
   function startTimer() {
@@ -279,7 +324,7 @@ export default function DailyModulePage() {
   async function submitMains() {
     setMainsMsg(null);
     if (!dailySetId) return;
-    if (!mains) return setMainsMsg("No mains question for this day.");
+    if (!mains) return setMainsMsg("No mains question for this filter.");
     if (wordCount(mainsAnswer) < 30)
       return setMainsMsg("Write at least ~30 words before submitting.");
 
@@ -304,7 +349,7 @@ export default function DailyModulePage() {
   return (
     <AuthGuard>
       <main className="max-w-4xl mx-auto p-6">
-        {/* Top bar navigation */}
+        {/* Header + navigation */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">Daily Module</h1>
@@ -320,11 +365,7 @@ export default function DailyModulePage() {
               ← Previous
             </button>
 
-            <select
-              value={date}
-              onChange={(e) => goToDate(e.target.value)}
-              className="w-auto"
-            >
+            <select value={date} onChange={(e) => goToDate(e.target.value)} className="w-auto">
               {allDates.map((d) => (
                 <option key={d} value={d}>
                   {d}
@@ -340,27 +381,62 @@ export default function DailyModulePage() {
               Next →
             </button>
 
+            <a className="btn btn-secondary" href="/practice">
+              Practice Home
+            </a>
+
             <a className="btn btn-secondary" href="/archive">
               Archive
             </a>
           </div>
         </div>
 
+        {/* GS filter */}
+        <div className="mt-4 flex items-center gap-2">
+          <span className="text-sm text-gray-600">GS:</span>
+          <select className="w-auto" value={gs} onChange={(e) => setGs(e.target.value as GsFilter)}>
+            {GS_OPTIONS.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
+          </select>
+
+          <a className="btn btn-secondary ml-auto" href={`/day/${date}/review?gs=${gs}`}>
+            Review
+          </a>
+        </div>
+
         {msg && <p className="mt-3 text-red-600">{msg}</p>}
 
         {/* Current Affairs */}
-        {currentAffair && (
-          <div className="card card-body mt-6">
-            <div className="text-sm text-gray-500">{currentAffair.gs_tags}</div>
-            <div className="text-xl font-semibold mt-1">
-              {currentAffair.title}
-            </div>
-            <p className="mt-3 text-gray-700">{currentAffair.summary}</p>
+        <div className="mt-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Current Affairs</h2>
+            <a className="text-sm underline" href="/current-affairs">
+              Open CA Archive
+            </a>
           </div>
-        )}
+
+          {currentAffairs.length === 0 ? (
+            <p className="text-sm text-gray-600 mt-2">No current affairs for this date/filter.</p>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {currentAffairs.map((ca) => (
+                <div key={ca.id} className="card card-body">
+                  <div className="text-sm text-gray-500">
+                    {ca.gs_paper ? ca.gs_paper : ""} {ca.gs_tags ? `• ${ca.gs_tags}` : ""}
+                  </div>
+                  <div className="text-lg font-semibold mt-1">{ca.title}</div>
+                  <p className="mt-2 text-gray-700">{ca.summary}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* MCQs */}
-        <h2 className="text-xl font-semibold mt-8">MCQs</h2>
+        <h2 className="text-xl font-semibold mt-10">MCQs</h2>
         <div className="mt-2 text-sm text-gray-600">
           Answered {answeredCount} of {mcqs.length}
         </div>
@@ -368,58 +444,61 @@ export default function DailyModulePage() {
         <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
           <div
             className="bg-gray-900 h-2 rounded-full transition-all"
-            style={{
-              width: mcqs.length > 0 ? `${(answeredCount / mcqs.length) * 100}%` : "0%",
-            }}
+            style={{ width: mcqs.length > 0 ? `${(answeredCount / mcqs.length) * 100}%` : "0%" }}
           />
         </div>
 
-        <div className="mt-4 space-y-4">
-          {mcqs.map((q, idx) => (
-            <div key={q.id} className="card card-body">
-              <div className="font-semibold">
-                Q{idx + 1}. {q.question}
+        {mcqs.length === 0 ? (
+          <p className="text-sm text-gray-600 mt-3">No MCQs for this date/filter.</p>
+        ) : (
+          <div className="mt-4 space-y-4">
+            {mcqs.map((q, idx) => (
+              <div key={q.id} className="card card-body">
+                <div className="text-sm text-gray-500">{q.gs_paper || ""}</div>
+                <div className="font-semibold mt-1">
+                  Q{idx + 1}. {q.question}
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {(["A", "B", "C", "D"] as const).map((opt) => {
+                    const text =
+                      opt === "A"
+                        ? q.option_a
+                        : opt === "B"
+                        ? q.option_b
+                        : opt === "C"
+                        ? q.option_c
+                        : q.option_d;
+
+                    return (
+                      <label
+                        key={opt}
+                        className={`flex gap-3 items-start p-3 rounded-lg border cursor-pointer transition ${
+                          answers[q.id] === opt
+                            ? "border-gray-900 bg-gray-100"
+                            : "border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={q.id}
+                          checked={answers[q.id] === opt}
+                          onChange={() => choose(q.id, opt)}
+                          className="mt-1"
+                        />
+                        <span>
+                          <b>{opt}.</b> {text}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
+            ))}
+          </div>
+        )}
 
-              <div className="mt-3 space-y-2">
-                {(["A", "B", "C", "D"] as const).map((opt) => {
-                  const text =
-                    opt === "A"
-                      ? q.option_a
-                      : opt === "B"
-                      ? q.option_b
-                      : opt === "C"
-                      ? q.option_c
-                      : q.option_d;
-
-                  return (
-                    <label
-                      key={opt}
-                      className={`flex gap-3 items-start p-3 rounded-lg border cursor-pointer transition ${
-                        answers[q.id] === opt
-                          ? "border-gray-900 bg-gray-100"
-                          : "border-gray-200 hover:bg-gray-50"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name={q.id}
-                        checked={answers[q.id] === opt}
-                        onChange={() => choose(q.id, opt)}
-                        className="mt-1"
-                      />
-                      <span>
-                        <b>{opt}.</b> {text}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Sticky Submit */}
+        {/* Sticky submit MCQs */}
         <div className="sticky bottom-0 bg-white border-t p-4 mt-8">
           <div className="max-w-4xl mx-auto flex justify-between items-center">
             <div className="text-sm">
@@ -428,7 +507,7 @@ export default function DailyModulePage() {
 
             <button
               onClick={submitMCQs}
-              disabled={!allAnswered}
+              disabled={!allAnswered || mcqs.length === 0}
               className="btn btn-primary disabled:opacity-50"
             >
               Submit MCQs
@@ -440,9 +519,10 @@ export default function DailyModulePage() {
         <h2 className="text-xl font-semibold mt-10">Mains Answer Writing</h2>
 
         {!mains ? (
-          <p className="mt-3 text-gray-600">No mains question added for this day yet.</p>
+          <p className="mt-3 text-gray-600">No mains question for this date/filter.</p>
         ) : (
           <div className="mt-4 card card-body space-y-3">
+            <div className="text-sm text-gray-500">{mains.gs_paper || ""}</div>
             <div className="font-semibold">{mains.question}</div>
 
             {mains.demand && (
@@ -468,6 +548,7 @@ export default function DailyModulePage() {
             </div>
 
             <textarea
+              className="w-full border rounded-lg p-2"
               rows={10}
               value={mainsAnswer}
               onChange={(e) => setMainsAnswer(e.target.value)}
