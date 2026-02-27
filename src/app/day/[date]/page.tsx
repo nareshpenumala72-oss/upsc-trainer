@@ -20,11 +20,19 @@ type MainsQ = {
   id: string;
   question: string;
   demand: string | null;
-  keywords: string[];
+  keywords: string[] | null;
   structure_intro: string | null;
   structure_body: string | null;
   structure_conclusion: string | null;
   value_add: string | null;
+};
+
+type CurrentAffair = {
+  id: string;
+  title: string;
+  summary: string;
+  gs_tags: string; // IMPORTANT: this matches your column name
+  date: string;
 };
 
 function wordCount(text: string) {
@@ -38,6 +46,8 @@ export default function DailyModulePage() {
 
   const [dailySetId, setDailySetId] = useState<string | null>(null);
 
+  const [currentAffair, setCurrentAffair] = useState<CurrentAffair | null>(null);
+
   const [mcqs, setMcqs] = useState<MCQ[]>([]);
   const [answers, setAnswers] = useState<Record<string, "A" | "B" | "C" | "D">>(
     {}
@@ -49,10 +59,12 @@ export default function DailyModulePage() {
 
   const [msg, setMsg] = useState<string | null>(null);
 
-  // 20 min timer (adjust later)
+  // 20 min timer
   const TOTAL_SECONDS = 20 * 60;
   const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS);
   const timerRef = useRef<number | null>(null);
+
+  const answeredCount = useMemo(() => Object.keys(answers).length, [answers]);
 
   const allAnswered = useMemo(
     () => mcqs.length > 0 && mcqs.every((q) => answers[q.id]),
@@ -63,18 +75,35 @@ export default function DailyModulePage() {
     (async () => {
       setMsg(null);
 
+      // 1) Fetch daily_set for this date
       const { data: ds, error: dsErr } = await supabase
         .from("daily_sets")
         .select("id")
         .eq("date", date)
-        .single();
+        .maybeSingle();
 
-      if (dsErr || !ds) {
-        setMsg("No daily set found for this date.");
+      if (dsErr) {
+        setMsg(dsErr.message);
         return;
       }
+      if (!ds) {
+        setMsg(`No daily set found for this date: ${date}`);
+        return;
+      }
+
       setDailySetId(ds.id);
 
+      // 2) Fetch current affairs card for this date
+      const { data: ca, error: caErr } = await supabase
+        .from("current_affairs")
+        .select("id,title,summary,gs_tags,date")
+        .eq("date", date)
+        .maybeSingle();
+
+      if (!caErr) setCurrentAffair(ca as CurrentAffair);
+      // if error, we silently ignore (no CA shown)
+
+      // 3) Fetch daily_set_items (mcq + mains IDs)
       const { data: items, error: itErr } = await supabase
         .from("daily_set_items")
         .select("item_type, item_id")
@@ -91,6 +120,7 @@ export default function DailyModulePage() {
 
       const mainsId = (items ?? []).find((x) => x.item_type === "mains")?.item_id;
 
+      // 4) Fetch MCQs
       if (mcqIds.length > 0) {
         const { data: qData, error: qErr } = await supabase
           .from("mcqs")
@@ -104,12 +134,14 @@ export default function DailyModulePage() {
           return;
         }
 
+        // keep order same as daily_set_items
         const map = new Map((qData ?? []).map((q: any) => [q.id, q]));
         setMcqs(mcqIds.map((id) => map.get(id)).filter(Boolean) as MCQ[]);
       } else {
-        setMsg("No MCQs found in this daily set.");
+        setMcqs([]);
       }
 
+      // 5) Fetch Mains question
       if (mainsId) {
         const { data: mData, error: mErr } = await supabase
           .from("mains_questions")
@@ -120,10 +152,11 @@ export default function DailyModulePage() {
           .single();
 
         if (!mErr) setMains(mData as MainsQ);
+      } else {
+        setMains(null);
       }
     })();
 
-    // cleanup timer on route change
     return () => {
       if (timerRef.current) window.clearInterval(timerRef.current);
     };
@@ -170,7 +203,7 @@ export default function DailyModulePage() {
   }
 
   function startTimer() {
-    if (timerRef.current) return; // already running
+    if (timerRef.current) return;
     timerRef.current = window.setInterval(() => {
       setSecondsLeft((s) => {
         if (s <= 1) {
@@ -194,7 +227,7 @@ export default function DailyModulePage() {
   async function submitMains() {
     setMainsMsg(null);
     if (!dailySetId) return;
-    if (!mains) return setMainsMsg("No mains question for today.");
+    if (!mains) return setMainsMsg("No mains question for this day.");
     if (wordCount(mainsAnswer) < 30)
       return setMainsMsg("Write at least ~30 words before submitting.");
 
@@ -223,26 +256,36 @@ export default function DailyModulePage() {
         <h1 className="text-2xl font-bold">Daily Module: {date}</h1>
         {msg && <p className="mt-3 text-red-600">{msg}</p>}
 
-        {/* MCQs */}
-        <h2 className="text-xl font-semibold mt-6">MCQs</h2>
-        <div className="mt-2 text-sm text-gray-600">
-  Answered {Object.keys(answers).length} of {mcqs.length}
-</div>
+        {/* Current Affairs Card */}
+        {currentAffair && (
+          <div className="card card-body mt-6">
+            <div className="text-sm text-gray-500">{currentAffair.gs_tags}</div>
+            <div className="text-xl font-semibold mt-1">
+              {currentAffair.title}
+            </div>
+            <p className="mt-3 text-gray-700">{currentAffair.summary}</p>
+          </div>
+        )}
 
-<div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-  <div
-    className="bg-gray-900 h-2 rounded-full transition-all"
-    style={{
-      width:
-        mcqs.length > 0
-          ? `${(Object.keys(answers).length / mcqs.length) * 100}%`
-          : "0%",
-    }}
-  />
-</div>
+        {/* MCQs */}
+        <h2 className="text-xl font-semibold mt-8">MCQs</h2>
+
+        <div className="mt-2 text-sm text-gray-600">
+          Answered {answeredCount} of {mcqs.length}
+        </div>
+
+        <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+          <div
+            className="bg-gray-900 h-2 rounded-full transition-all"
+            style={{
+              width: mcqs.length > 0 ? `${(answeredCount / mcqs.length) * 100}%` : "0%",
+            }}
+          />
+        </div>
+
         <div className="mt-4 space-y-4">
           {mcqs.map((q, idx) => (
-            <div key={q.id} className="bg-white p-4 rounded-xl shadow">
+            <div key={q.id} className="card card-body">
               <div className="font-semibold">
                 Q{idx + 1}. {q.question}
               </div>
@@ -259,18 +302,20 @@ export default function DailyModulePage() {
                       : q.option_d;
 
                   return (
-<label
-  key={opt}
-  className={`flex gap-3 items-start p-3 rounded-lg border cursor-pointer transition ${
-    answers[q.id] === opt
-      ? "border-gray-900 bg-gray-100"
-      : "border-gray-200 hover:bg-gray-50"
-  }`}
->                      <input
+                    <label
+                      key={opt}
+                      className={`flex gap-3 items-start p-3 rounded-lg border cursor-pointer transition ${
+                        answers[q.id] === opt
+                          ? "border-gray-900 bg-gray-100"
+                          : "border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <input
                         type="radio"
                         name={q.id}
                         checked={answers[q.id] === opt}
                         onChange={() => choose(q.id, opt)}
+                        className="mt-1"
                       />
                       <span>
                         <b>{opt}.</b> {text}
@@ -283,31 +328,32 @@ export default function DailyModulePage() {
           ))}
         </div>
 
-<div className="sticky bottom-0 bg-white border-t p-4 mt-8">
-  <div className="max-w-4xl mx-auto flex justify-between items-center">
-    <div className="text-sm">
-      {Object.keys(answers).length} / {mcqs.length} answered
-    </div>
+        {/* Sticky Submit bar */}
+        <div className="sticky bottom-0 bg-white border-t p-4 mt-8">
+          <div className="max-w-4xl mx-auto flex justify-between items-center">
+            <div className="text-sm">
+              {answeredCount} / {mcqs.length} answered
+            </div>
 
-    <button
-      onClick={submitMCQs}
-      disabled={!allAnswered}
-      className="btn btn-primary disabled:opacity-50"
-    >
-      Submit MCQs
-    </button>
-  </div>
-</div>
+            <button
+              onClick={submitMCQs}
+              disabled={!allAnswered}
+              className="btn btn-primary disabled:opacity-50"
+            >
+              Submit MCQs
+            </button>
+          </div>
+        </div>
 
         {/* MAINS */}
         <h2 className="text-xl font-semibold mt-10">Mains Answer Writing</h2>
 
         {!mains ? (
           <p className="mt-3 text-gray-600">
-            No mains question added for this day yet (admin needs to attach it).
+            No mains question added for this day yet.
           </p>
         ) : (
-          <div className="mt-4 bg-white p-4 rounded-xl shadow space-y-3">
+          <div className="mt-4 card card-body space-y-3">
             <div className="font-semibold">{mains.question}</div>
 
             {mains.demand && (
@@ -319,16 +365,10 @@ export default function DailyModulePage() {
             <div className="text-sm text-gray-700">
               <b>Timer:</b> {mm}:{ss}
               <div className="mt-2 flex gap-2">
-                <button
-                  onClick={startTimer}
-                  className="border px-3 py-1 rounded"
-                >
+                <button onClick={startTimer} className="btn btn-secondary">
                   Start
                 </button>
-                <button
-                  onClick={resetTimer}
-                  className="border px-3 py-1 rounded"
-                >
+                <button onClick={resetTimer} className="btn btn-secondary">
                   Reset
                 </button>
               </div>
@@ -346,15 +386,13 @@ export default function DailyModulePage() {
               placeholder="Write your answer here..."
             />
 
-            <button
-              onClick={submitMains}
-              className="bg-black text-white px-4 py-2 rounded"
-            >
+            <button onClick={submitMains} className="btn btn-primary">
               Submit Mains Answer
             </button>
 
             {mainsMsg && <p className="text-sm mt-2">{mainsMsg}</p>}
 
+            {/* Hints (optional) */}
             <details className="mt-2">
               <summary className="cursor-pointer text-sm font-medium">
                 Show model structure hints
