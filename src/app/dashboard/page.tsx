@@ -1,152 +1,198 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+export const dynamic = "force-dynamic";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import AuthGuard from "@/components/AuthGuard";
+import { supabase } from "@/lib/supabaseClient";
+
+type AttemptRow = { mcq_id: string; is_correct: boolean };
+type MCQMini = { id: string; gs_paper: string | null };
+
+type Stat = {
+  gs: "GS1" | "GS2" | "GS3" | "GS4" | "Unknown";
+  attempted: number;
+  correct: number;
+  accuracy: number;
+};
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState({
-    totalAttempts: 0,
-    correct: 0,
-    mainsCount: 0,
-  });
-
-  const [streak, setStreak] = useState(0);
-  const [lastPractice, setLastPractice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // existing-style stats
+  const [totalAttempts, setTotalAttempts] = useState(0);
+  const [mainsCount, setMainsCount] = useState(0);
+  const [accuracy, setAccuracy] = useState(0);
+
+  // new: GS stats
+  const [gsStats, setGsStats] = useState<Stat[]>([]);
+  const [weakest, setWeakest] = useState<Stat | null>(null);
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
+
       const { data: auth } = await supabase.auth.getUser();
       const userId = auth.user?.id;
-      if (!userId) return;
-
-      // MCQ attempts (for accuracy)
-      const { data: mcqAttempts } = await supabase
-        .from("mcq_attempts")
-        .select("is_correct")
-        .eq("user_id", userId);
-
-      const totalAttempts = mcqAttempts?.length || 0;
-      const correct = mcqAttempts?.filter((a) => a.is_correct).length || 0;
-
-      // Mains submissions count
-      const { data: mains } = await supabase
-        .from("mains_submissions")
-        .select("id, created_at")
-        .eq("user_id", userId);
-
-      // Submissions by day (streak)
-      const { data: submissions } = await supabase
-        .from("daily_mcq_submissions")
-        .select("created_at")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-
-      // Calculate streak (based on submission dates)
-      let s = 0;
-      let last: string | null = null;
-
-      if (submissions && submissions.length > 0) {
-        const dates = submissions.map(
-          (x) => new Date(x.created_at).toISOString().split("T")[0]
-        );
-        const uniqueDates = Array.from(new Set(dates)).sort().reverse();
-
-        const today = new Date();
-        let current = new Date(today);
-
-        for (const d of uniqueDates) {
-          const currentStr = current.toISOString().split("T")[0];
-          if (d === currentStr) {
-            s++;
-            current.setDate(current.getDate() - 1);
-          } else {
-            break;
-          }
-        }
-
-        last = uniqueDates[0];
+      if (!userId) {
+        setLoading(false);
+        return;
       }
 
-      setStats({
-        totalAttempts,
-        correct,
-        mainsCount: mains?.length || 0,
+      // MCQ attempts
+      const { data: aData } = await supabase
+        .from("mcq_attempts")
+        .select("mcq_id,is_correct")
+        .eq("user_id", userId);
+
+      const attempts = (aData || []) as AttemptRow[];
+      const total = attempts.length;
+      const correct = attempts.filter((x) => x.is_correct).length;
+
+      setTotalAttempts(total);
+      setAccuracy(total > 0 ? Math.round((correct / total) * 100) : 0);
+
+      // Mains submissions count
+      const { count } = await supabase
+        .from("mains_submissions")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId);
+
+      setMainsCount(count || 0);
+
+      // GS breakdown
+      const mcqIds = Array.from(new Set(attempts.map((a) => a.mcq_id)));
+      let mcqMap: Record<string, MCQMini> = {};
+
+      if (mcqIds.length > 0) {
+        const { data: mData } = await supabase
+          .from("mcqs")
+          .select("id,gs_paper")
+          .in("id", mcqIds);
+
+        (mData || []).forEach((m: any) => {
+          mcqMap[m.id] = { id: m.id, gs_paper: m.gs_paper ?? null };
+        });
+      }
+
+      const bucket: Record<string, { attempted: number; correct: number }> = {};
+      const key = (gs: string | null) => gs || "Unknown";
+
+      for (const a of attempts) {
+        const gs = key(mcqMap[a.mcq_id]?.gs_paper ?? null);
+        bucket[gs] = bucket[gs] || { attempted: 0, correct: 0 };
+        bucket[gs].attempted += 1;
+        if (a.is_correct) bucket[gs].correct += 1;
+      }
+
+      const order = ["GS1", "GS2", "GS3", "GS4", "Unknown"];
+      const normalized: Stat[] = order.map((g) => {
+        const v = bucket[g] || { attempted: 0, correct: 0 };
+        return {
+          gs: g as any,
+          attempted: v.attempted,
+          correct: v.correct,
+          accuracy: v.attempted > 0 ? Math.round((v.correct / v.attempted) * 100) : 0,
+        };
       });
 
-      setStreak(s);
-      setLastPractice(last);
+      setGsStats(normalized);
+
+      const candidates = normalized.filter((s) => s.gs !== "Unknown" && s.attempted > 0);
+      const w =
+        candidates.length === 0
+          ? null
+          : candidates.reduce((min, cur) => (cur.accuracy < min.accuracy ? cur : min));
+      setWeakest(w);
+
       setLoading(false);
     })();
   }, []);
 
-  if (loading) return <div className="p-6">Loading dashboard...</div>;
-
-  const accuracy =
-    stats.totalAttempts > 0
-      ? ((stats.correct / stats.totalAttempts) * 100).toFixed(1)
-      : "0";
+  const gsMini = useMemo(() => gsStats.filter((x) => x.gs !== "Unknown"), [gsStats]);
 
   return (
     <AuthGuard>
       <main className="max-w-4xl mx-auto p-6">
         <h1 className="text-2xl font-bold mb-6">My Dashboard</h1>
 
-        {/* 3 Stat Cards */}
-        <div className="grid md:grid-cols-3 gap-4">
-          <div className="bg-white p-4 rounded-xl shadow">
-            <h2 className="text-lg font-semibold">Total MCQs Attempted</h2>
-            <p className="text-2xl mt-2">{stats.totalAttempts}</p>
-          </div>
+        {loading ? (
+          <p>Loading...</p>
+        ) : (
+          <>
+            {/* Stat cards */}
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="bg-white p-4 rounded-xl shadow">
+                <h2 className="text-lg font-semibold">Total MCQs Attempted</h2>
+                <p className="text-2xl mt-2">{totalAttempts}</p>
+              </div>
 
-          <div className="bg-white p-4 rounded-xl shadow">
-            <h2 className="text-lg font-semibold">Accuracy</h2>
-            <p className="text-2xl mt-2">{accuracy}%</p>
-          </div>
+              <div className="bg-white p-4 rounded-xl shadow">
+                <h2 className="text-lg font-semibold">Accuracy</h2>
+                <p className="text-2xl mt-2">{accuracy}%</p>
+              </div>
 
-          <div className="bg-white p-4 rounded-xl shadow">
-            <h2 className="text-lg font-semibold">Mains Answers Written</h2>
-            <p className="text-2xl mt-2">{stats.mainsCount}</p>
-          </div>
-        </div>
+              <div className="bg-white p-4 rounded-xl shadow">
+                <h2 className="text-lg font-semibold">Mains Answers Written</h2>
+                <p className="text-2xl mt-2">{mainsCount}</p>
+              </div>
+            </div>
 
-        {/* Streak */}
-        <div className="mt-8 grid md:grid-cols-2 gap-4">
-          <div className="bg-white p-4 rounded-xl shadow">
-            <h2 className="text-lg font-semibold">🔥 Current Streak</h2>
-            <p className="text-2xl mt-2">{streak} days</p>
-          </div>
+            {/* Quick actions */}
+            <div className="mt-8 grid md:grid-cols-2 gap-4">
+              <Link className="card card-body hover:bg-gray-50 transition" href="/practice">
+                <div className="text-lg font-semibold">📝 Practice</div>
+                <div className="text-sm text-gray-600">Choose a date and attempt questions</div>
+              </Link>
 
-          <div className="bg-white p-4 rounded-xl shadow">
-            <h2 className="text-lg font-semibold">Last Practice</h2>
-            <p className="text-2xl mt-2">
-              {lastPractice ? lastPractice : "No practice yet"}
-            </p>
-          </div>
-        </div>
+              <Link className="card card-body hover:bg-gray-50 transition" href="/current-affairs">
+                <div className="text-lg font-semibold">🗞️ Current Affairs</div>
+                <div className="text-sm text-gray-600">Browse date-wise CA with GS filters</div>
+              </Link>
 
-        {/* Quick actions */}
-        <div className="mt-8 flex gap-3">
-          <a className="btn btn-primary" href="/practice">
-            Start Practice
-          </a>
-          <a className="btn btn-secondary" href="/archive">
-            Open Archive
-          </a>
-        </div>
+              <Link className="card card-body hover:bg-gray-50 transition" href="/notes">
+                <div className="text-lg font-semibold">📌 Notes</div>
+                <div className="text-sm text-gray-600">View your saved takeaways</div>
+              </Link>
 
-        <div className="mt-8 grid md:grid-cols-2 gap-4">
-  <a className="card card-body hover:bg-gray-50 transition" href="/practice">
-    <div className="text-lg font-semibold">📝 Practice</div>
-    <div className="text-sm text-gray-600">Choose date, attempt MCQs + Mains</div>
-  </a>
+              <Link className="card card-body hover:bg-gray-50 transition" href="/progress">
+                <div className="text-lg font-semibold">📊 Progress</div>
+                <div className="text-sm text-gray-600">GS-wise accuracy and weak areas</div>
+              </Link>
+            </div>
 
-  <a className="card card-body hover:bg-gray-50 transition" href="/current-affairs">
-    <div className="text-lg font-semibold">🗞️ Current Affairs</div>
-    <div className="text-sm text-gray-600">Browse date-wise CA notes</div>
-  </a>
-</div>
+            {/* Weak areas */}
+            <div className="mt-8 card card-body">
+              <div className="text-lg font-semibold">GS-wise Snapshot</div>
+
+              <div className="mt-3 space-y-2">
+                {gsMini.map((s) => (
+                  <div key={s.gs} className="flex items-center justify-between">
+                    <div className="text-sm">
+                      <b>{s.gs}</b> • {s.correct}/{s.attempted}
+                    </div>
+                    <div className="text-sm font-semibold">{s.accuracy}%</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 text-sm">
+                {weakest ? (
+                  <>
+                    <b>Weakest GS right now:</b> {weakest.gs} ({weakest.accuracy}%)
+                    <span className="text-gray-600">
+                      {" "}
+                      — focus practice on {weakest.gs}.
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-gray-600">Attempt some MCQs to see weak areas.</span>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </main>
     </AuthGuard>
   );

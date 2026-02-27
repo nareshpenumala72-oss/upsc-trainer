@@ -1,10 +1,9 @@
 import "./globals.css";
-import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata: Metadata = {
+export const metadata = {
   title: "UPSC Daily Trainer",
-  description: "Daily MCQs + Mains + Progress",
+  description: "Daily practice for UPSC aspirants",
 };
 
 export default function RootLayout({
@@ -14,55 +13,40 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-gray-50 text-gray-900">
-        <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur">
-          <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
-            <Link href="/" className="font-bold tracking-tight">
+      <body>
+        <header className="border-b bg-white">
+          <nav className="max-w-5xl mx-auto p-4 flex flex-wrap items-center gap-3">
+            <Link href="/" className="font-bold">
               UPSC Daily Trainer
             </Link>
 
-<nav className="flex items-center gap-4 text-sm">
-
-    <Link className="hover:underline" href="/practice">
-  Practice
-</Link>
-
-  <Link className="hover:underline" href="/dashboard">
-    Dashboard
-  </Link>
-
-  <Link className="hover:underline" href="/admin/mcqs">
-    Admin
-  </Link>
-
-  <Link className="hover:underline" href="/login">
-    Login
-  </Link>
-
-  <Link className="hover:underline" href="/register">
-    Register
-  </Link>
-
-  <Link className="hover:underline" href="/archive">
-  Archive
-</Link>
-
-  <Link className="hover:underline" href="/current-affairs">
-  current-affairs
-</Link>
-
-
-</nav>
-          </div>
+            <div className="ml-auto flex flex-wrap gap-2">
+              <Link className="btn btn-secondary" href="/dashboard">
+                Dashboard
+              </Link>
+              <Link className="btn btn-secondary" href="/practice">
+                Practice
+              </Link>
+              <Link className="btn btn-secondary" href="/current-affairs">
+                Current Affairs
+              </Link>
+              <Link className="btn btn-secondary" href="/notes">
+                Notes
+              </Link>
+              <Link className="btn btn-secondary" href="/progress">
+                Progress
+              </Link>
+              <Link className="btn btn-secondary" href="/admin">
+                Admin
+              </Link>
+              <Link className="btn btn-secondary" href="/login">
+                Login
+              </Link>
+            </div>
+          </nav>
         </header>
 
-        <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
-
-        <footer className="mt-10 border-t bg-white">
-          <div className="mx-auto max-w-6xl px-4 py-6 text-sm text-gray-500">
-            © {new Date().getFullYear()} UPSC Daily Trainer
-          </div>
-        </footer>
+        {children}
       </body>
     </html>
   );
