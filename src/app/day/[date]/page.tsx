@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabaseClient";
 type GsFilter = "All" | "GS1" | "GS2" | "GS3" | "GS4";
 const GS_OPTIONS: GsFilter[] = ["All", "GS1", "GS2", "GS3", "GS4"];
 
-type DailySetRow = { id: string; date: string };
+type SubjectFilter = string; // we read from query param, allow any subject string
 
 type MCQ = {
   id: string;
@@ -20,6 +20,7 @@ type MCQ = {
   correct_option: "A" | "B" | "C" | "D";
   explanation: string;
   gs_paper: string | null;
+  subject: string | null;
 };
 
 type MainsQ = {
@@ -52,10 +53,13 @@ export default function DailyModulePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const date = params.date; // YYYY-MM-DD
+  const date = params.date;
 
   const qsGs = (searchParams.get("gs") || "All") as GsFilter;
+  const qsSubject = (searchParams.get("subject") || "All") as SubjectFilter;
+
   const [gs, setGs] = useState<GsFilter>(GS_OPTIONS.includes(qsGs) ? qsGs : "All");
+  const [subject, setSubject] = useState<SubjectFilter>(qsSubject);
 
   const [allDates, setAllDates] = useState<string[]>([]);
   const [prevDate, setPrevDate] = useState<string | null>(null);
@@ -67,21 +71,25 @@ export default function DailyModulePage() {
   const [mcqs, setMcqs] = useState<MCQ[]>([]);
   const [mains, setMains] = useState<MainsQ | null>(null);
 
-  const [answers, setAnswers] = useState<Record<string, "A" | "B" | "C" | "D">>(
-    {}
-  );
+  const [answers, setAnswers] = useState<Record<string, "A" | "B" | "C" | "D">>({});
   const [msg, setMsg] = useState<string | null>(null);
 
   // Mains answer box
   const [mainsAnswer, setMainsAnswer] = useState("");
   const [mainsMsg, setMainsMsg] = useState<string | null>(null);
 
-  // Timer
-  const TOTAL_SECONDS = 20 * 60;
-  const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS);
-  const timerRef = useRef<number | null>(null);
+  // Mains timer (20 mins)
+  const TOTAL_MAIN_SECONDS = 20 * 60;
+  const [mainSecondsLeft, setMainSecondsLeft] = useState(TOTAL_MAIN_SECONDS);
+  const mainsTimerRef = useRef<number | null>(null);
 
-  // Fetch list of all available dates (for dropdown + prev/next)
+  // ✅ NEW: MCQ timer (10 mins)
+  const TOTAL_MCQ_SECONDS = 10 * 60;
+  const [mcqSecondsLeft, setMcqSecondsLeft] = useState(TOTAL_MCQ_SECONDS);
+  const mcqTimerRef = useRef<number | null>(null);
+  const [mcqTimerStarted, setMcqTimerStarted] = useState(false);
+
+  // Load list of all available dates
   useEffect(() => {
     (async () => {
       const { data, error } = await supabase
@@ -96,7 +104,7 @@ export default function DailyModulePage() {
     })();
   }, []);
 
-  // Compute prev/next for current date
+  // Compute prev/next
   useEffect(() => {
     if (allDates.length === 0) {
       setPrevDate(null);
@@ -113,28 +121,31 @@ export default function DailyModulePage() {
     setNextDate(idx < allDates.length - 1 ? allDates[idx + 1] : null);
   }, [allDates, date]);
 
-  // Keep URL in sync when user changes gs filter
+  // Keep URL synced with gs + subject
   useEffect(() => {
-    const url = `/day/${date}?gs=${gs}`;
-    // replace so back button is clean
-    router.replace(url);
+    router.replace(`/day/${date}?gs=${gs}&subject=${encodeURIComponent(subject)}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gs]);
+  }, [gs, subject]);
 
-  // Load day content (daily set + CA + MCQs + mains)
+  // Load day content
   useEffect(() => {
     (async () => {
       setMsg(null);
       setAnswers({});
       setMainsAnswer("");
       setMainsMsg(null);
-      setSecondsLeft(TOTAL_SECONDS);
-      if (timerRef.current) {
-        window.clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
 
-      // 1) Get daily set
+      // reset timers
+      setMainSecondsLeft(TOTAL_MAIN_SECONDS);
+      if (mainsTimerRef.current) window.clearInterval(mainsTimerRef.current);
+      mainsTimerRef.current = null;
+
+      setMcqSecondsLeft(TOTAL_MCQ_SECONDS);
+      if (mcqTimerRef.current) window.clearInterval(mcqTimerRef.current);
+      mcqTimerRef.current = null;
+      setMcqTimerStarted(false);
+
+      // daily set
       const { data: ds, error: dsErr } = await supabase
         .from("daily_sets")
         .select("id")
@@ -156,7 +167,7 @@ export default function DailyModulePage() {
 
       setDailySetId(ds.id);
 
-      // 2) Fetch current affairs for date (can be multiple). Filter by GS if selected.
+      // CA (date) + gs filter
       let caQuery = supabase
         .from("current_affairs")
         .select("id,title,summary,gs_tags,gs_paper,date")
@@ -168,7 +179,7 @@ export default function DailyModulePage() {
       const { data: caData } = await caQuery;
       setCurrentAffairs((caData || []) as CurrentAffair[]);
 
-      // 3) Fetch daily_set_items
+      // daily_set_items
       const { data: items, error: itErr } = await supabase
         .from("daily_set_items")
         .select("item_type, item_id")
@@ -187,12 +198,12 @@ export default function DailyModulePage() {
         .filter((x) => x.item_type === "mains")
         .map((x) => x.item_id);
 
-      // 4) Fetch MCQs (and filter by gs_paper)
+      // MCQs
       if (mcqIds.length > 0) {
         const { data: qData, error: qErr } = await supabase
           .from("mcqs")
           .select(
-            "id,question,option_a,option_b,option_c,option_d,correct_option,explanation,gs_paper"
+            "id,question,option_a,option_b,option_c,option_d,correct_option,explanation,gs_paper,subject"
           )
           .in("id", mcqIds);
 
@@ -201,21 +212,24 @@ export default function DailyModulePage() {
           return;
         }
 
-        // Keep order same as daily_set_items
+        // keep order
         const map = new Map((qData || []).map((q: any) => [q.id, q]));
         const ordered = mcqIds
           .map((id) => map.get(id))
           .filter(Boolean) as MCQ[];
 
-        const filtered =
-          gs === "All" ? ordered : ordered.filter((m) => m.gs_paper === gs);
+        // filters
+        let filtered = gs === "All" ? ordered : ordered.filter((m) => m.gs_paper === gs);
+        if (subject && subject !== "All") {
+          filtered = filtered.filter((m) => (m.subject || "") === subject);
+        }
 
         setMcqs(filtered);
       } else {
         setMcqs([]);
       }
 
-      // 5) Fetch Mains (pick first that matches GS if filter set)
+      // Mains (pick first that matches GS if selected)
       if (mainsIds.length > 0) {
         const { data: mData, error: mErr } = await supabase
           .from("mains_questions")
@@ -241,11 +255,13 @@ export default function DailyModulePage() {
     })();
 
     return () => {
-      if (timerRef.current) window.clearInterval(timerRef.current);
-      timerRef.current = null;
+      if (mainsTimerRef.current) window.clearInterval(mainsTimerRef.current);
+      if (mcqTimerRef.current) window.clearInterval(mcqTimerRef.current);
+      mainsTimerRef.current = null;
+      mcqTimerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, gs]);
+  }, [date, gs, subject]);
 
   // Derived counts
   const answeredCount = useMemo(() => Object.keys(answers).length, [answers]);
@@ -255,14 +271,16 @@ export default function DailyModulePage() {
   );
 
   function goToDate(d: string) {
-    router.push(`/day/${d}?gs=${gs}`);
+    router.push(`/day/${d}?gs=${gs}&subject=${encodeURIComponent(subject)}`);
   }
 
   function choose(mcqId: string, opt: "A" | "B" | "C" | "D") {
+    // Start timer on first answer
+    if (!mcqTimerStarted) startMcqTimer();
     setAnswers((prev) => ({ ...prev, [mcqId]: opt }));
   }
 
-  async function submitMCQs() {
+  async function submitMCQs(toReview: boolean) {
     setMsg(null);
     if (!dailySetId) return;
     if (!allAnswered) return setMsg("Please answer all questions.");
@@ -287,7 +305,7 @@ export default function DailyModulePage() {
     });
     if (aErr) return setMsg(aErr.message);
 
-    // submission marker (avoid duplicate error)
+    // submission marker
     const { error: sErr } = await supabase
       .from("daily_mcq_submissions")
       .insert({ user_id: userId, daily_set_id: dailySetId });
@@ -296,16 +314,35 @@ export default function DailyModulePage() {
       return setMsg(sErr.message);
     }
 
-    router.push(`/day/${date}/review?gs=${gs}`);
+    // stop timer
+    if (mcqTimerRef.current) window.clearInterval(mcqTimerRef.current);
+    mcqTimerRef.current = null;
+
+    if (toReview) {
+      router.push(`/day/${date}/review?gs=${gs}`);
+    } else {
+      setMsg("✅ MCQs submitted!");
+    }
   }
 
-  function startTimer() {
-    if (timerRef.current) return;
-    timerRef.current = window.setInterval(() => {
-      setSecondsLeft((s) => {
+  // MCQ Timer
+  function startMcqTimer() {
+    if (mcqTimerRef.current) return;
+    setMcqTimerStarted(true);
+    mcqTimerRef.current = window.setInterval(async () => {
+      setMcqSecondsLeft((s) => {
         if (s <= 1) {
-          if (timerRef.current) window.clearInterval(timerRef.current);
-          timerRef.current = null;
+          // time over: auto-submit only if all answered
+          if (mcqTimerRef.current) window.clearInterval(mcqTimerRef.current);
+          mcqTimerRef.current = null;
+
+          // auto-submit to review if possible
+          setTimeout(() => {
+            if (mcqs.length > 0 && mcqs.every((q) => answers[q.id])) {
+              submitMCQs(true);
+            }
+          }, 0);
+
           return 0;
         }
         return s - 1;
@@ -313,12 +350,27 @@ export default function DailyModulePage() {
     }, 1000);
   }
 
-  function resetTimer() {
-    if (timerRef.current) {
-      window.clearInterval(timerRef.current);
-      timerRef.current = null;
+  // Mains timer
+  function startMainsTimer() {
+    if (mainsTimerRef.current) return;
+    mainsTimerRef.current = window.setInterval(() => {
+      setMainSecondsLeft((s) => {
+        if (s <= 1) {
+          if (mainsTimerRef.current) window.clearInterval(mainsTimerRef.current);
+          mainsTimerRef.current = null;
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+  }
+
+  function resetMainsTimer() {
+    if (mainsTimerRef.current) {
+      window.clearInterval(mainsTimerRef.current);
+      mainsTimerRef.current = null;
     }
-    setSecondsLeft(TOTAL_SECONDS);
+    setMainSecondsLeft(TOTAL_MAIN_SECONDS);
   }
 
   async function submitMains() {
@@ -343,8 +395,11 @@ export default function DailyModulePage() {
     setMainsMsg("✅ Mains answer submitted!");
   }
 
-  const mm = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
-  const ss = String(secondsLeft % 60).padStart(2, "0");
+  const mainMM = String(Math.floor(mainSecondsLeft / 60)).padStart(2, "0");
+  const mainSS = String(mainSecondsLeft % 60).padStart(2, "0");
+
+  const mcqMM = String(Math.floor(mcqSecondsLeft / 60)).padStart(2, "0");
+  const mcqSS = String(mcqSecondsLeft % 60).padStart(2, "0");
 
   return (
     <AuthGuard>
@@ -357,11 +412,7 @@ export default function DailyModulePage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              className="btn btn-secondary"
-              onClick={() => prevDate && goToDate(prevDate)}
-              disabled={!prevDate}
-            >
+            <button className="btn btn-secondary" onClick={() => prevDate && goToDate(prevDate)} disabled={!prevDate}>
               ← Previous
             </button>
 
@@ -373,11 +424,7 @@ export default function DailyModulePage() {
               ))}
             </select>
 
-            <button
-              className="btn btn-secondary"
-              onClick={() => nextDate && goToDate(nextDate)}
-              disabled={!nextDate}
-            >
+            <button className="btn btn-secondary" onClick={() => nextDate && goToDate(nextDate)} disabled={!nextDate}>
               Next →
             </button>
 
@@ -391,8 +438,8 @@ export default function DailyModulePage() {
           </div>
         </div>
 
-        {/* GS filter */}
-        <div className="mt-4 flex items-center gap-2">
+        {/* Filters */}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="text-sm text-gray-600">GS:</span>
           <select className="w-auto" value={gs} onChange={(e) => setGs(e.target.value as GsFilter)}>
             {GS_OPTIONS.map((x) => (
@@ -401,6 +448,14 @@ export default function DailyModulePage() {
               </option>
             ))}
           </select>
+
+          <span className="text-sm text-gray-600 ml-2">Subject:</span>
+          <input
+            className="w-auto"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="All / Polity / Economy..."
+          />
 
           <a className="btn btn-secondary ml-auto" href={`/day/${date}/review?gs=${gs}`}>
             Review
@@ -437,7 +492,18 @@ export default function DailyModulePage() {
 
         {/* MCQs */}
         <h2 className="text-xl font-semibold mt-10">MCQs</h2>
-        <div className="mt-2 text-sm text-gray-600">
+
+        {/* MCQ Timer */}
+        <div className="mt-3 card card-body bg-red-50">
+          <div className="text-lg font-semibold">
+            ⏳ MCQ Time Left: {mcqMM}:{mcqSS}
+          </div>
+          <div className="text-sm text-gray-600 mt-1">
+            Timer starts when you choose your first option. (10 minutes total)
+          </div>
+        </div>
+
+        <div className="mt-3 text-sm text-gray-600">
           Answered {answeredCount} of {mcqs.length}
         </div>
 
@@ -454,7 +520,10 @@ export default function DailyModulePage() {
           <div className="mt-4 space-y-4">
             {mcqs.map((q, idx) => (
               <div key={q.id} className="card card-body">
-                <div className="text-sm text-gray-500">{q.gs_paper || ""}</div>
+                <div className="text-sm text-gray-500">
+                  {q.gs_paper || ""} {q.subject ? `• ${q.subject}` : ""}
+                </div>
+
                 <div className="font-semibold mt-1">
                   Q{idx + 1}. {q.question}
                 </div>
@@ -506,7 +575,7 @@ export default function DailyModulePage() {
             </div>
 
             <button
-              onClick={submitMCQs}
+              onClick={() => submitMCQs(true)}
               disabled={!allAnswered || mcqs.length === 0}
               className="btn btn-primary disabled:opacity-50"
             >
@@ -532,12 +601,12 @@ export default function DailyModulePage() {
             )}
 
             <div className="text-sm text-gray-700">
-              <b>Timer:</b> {mm}:{ss}
+              <b>Timer:</b> {mainMM}:{mainSS}
               <div className="mt-2 flex gap-2">
-                <button onClick={startTimer} className="btn btn-secondary">
+                <button onClick={startMainsTimer} className="btn btn-secondary">
                   Start
                 </button>
-                <button onClick={resetTimer} className="btn btn-secondary">
+                <button onClick={resetMainsTimer} className="btn btn-secondary">
                   Reset
                 </button>
               </div>

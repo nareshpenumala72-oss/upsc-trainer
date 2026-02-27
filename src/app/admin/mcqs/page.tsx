@@ -8,11 +8,31 @@ import { supabase } from "@/lib/supabaseClient";
 type GsPaper = "GS1" | "GS2" | "GS3" | "GS4";
 const GS_OPTIONS: GsPaper[] = ["GS1", "GS2", "GS3", "GS4"];
 
+// Simple subject list (you can edit anytime)
+const SUBJECTS = [
+  "Polity",
+  "Governance",
+  "International Relations",
+  "Economy",
+  "Environment",
+  "Science & Tech",
+  "History",
+  "Geography",
+  "Society",
+  "Ethics",
+  "Security",
+  "Disaster Management",
+  "Agriculture",
+  "Misc",
+];
+
 export default function AdminMCQsPage() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const [gsPaper, setGsPaper] = useState<GsPaper>("GS2");
+  const [subject, setSubject] = useState<string>("Polity");
+
   const [question, setQuestion] = useState("");
   const [optionA, setOptionA] = useState("");
   const [optionB, setOptionB] = useState("");
@@ -29,11 +49,13 @@ export default function AdminMCQsPage() {
       return setMsg("All 4 options are required.");
     if (!explanation.trim()) return setMsg("Explanation is required.");
     if (!gsPaper) return setMsg("GS Paper is required.");
+    if (!subject.trim()) return setMsg("Subject is required.");
 
     setLoading(true);
 
     const { error } = await supabase.from("mcqs").insert({
       gs_paper: gsPaper,
+      subject,
       question,
       option_a: optionA,
       option_b: optionB,
@@ -58,6 +80,7 @@ export default function AdminMCQsPage() {
     setCorrect("A");
     setExplanation("");
     setGsPaper("GS2");
+    setSubject("Polity");
   }
 
   return (
@@ -73,20 +96,37 @@ export default function AdminMCQsPage() {
           )}
 
           <div className="card card-body space-y-4">
-            {/* GS Paper */}
-            <div>
-              <label className="text-sm text-gray-600">GS Paper</label>
-              <select
-                className="w-full mt-1"
-                value={gsPaper}
-                onChange={(e) => setGsPaper(e.target.value as GsPaper)}
-              >
-                {GS_OPTIONS.map((x) => (
-                  <option key={x} value={x}>
-                    {x}
-                  </option>
-                ))}
-              </select>
+            {/* GS + Subject */}
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm text-gray-600">GS Paper</label>
+                <select
+                  className="w-full mt-1"
+                  value={gsPaper}
+                  onChange={(e) => setGsPaper(e.target.value as GsPaper)}
+                >
+                  {GS_OPTIONS.map((x) => (
+                    <option key={x} value={x}>
+                      {x}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-600">Subject</label>
+                <select
+                  className="w-full mt-1"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                >
+                  {SUBJECTS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* Question */}
@@ -105,49 +145,29 @@ export default function AdminMCQsPage() {
             <div className="grid md:grid-cols-2 gap-3">
               <div>
                 <label className="text-sm text-gray-600">Option A</label>
-                <input
-                  className="w-full mt-1"
-                  value={optionA}
-                  onChange={(e) => setOptionA(e.target.value)}
-                />
+                <input className="w-full mt-1" value={optionA} onChange={(e) => setOptionA(e.target.value)} />
               </div>
 
               <div>
                 <label className="text-sm text-gray-600">Option B</label>
-                <input
-                  className="w-full mt-1"
-                  value={optionB}
-                  onChange={(e) => setOptionB(e.target.value)}
-                />
+                <input className="w-full mt-1" value={optionB} onChange={(e) => setOptionB(e.target.value)} />
               </div>
 
               <div>
                 <label className="text-sm text-gray-600">Option C</label>
-                <input
-                  className="w-full mt-1"
-                  value={optionC}
-                  onChange={(e) => setOptionC(e.target.value)}
-                />
+                <input className="w-full mt-1" value={optionC} onChange={(e) => setOptionC(e.target.value)} />
               </div>
 
               <div>
                 <label className="text-sm text-gray-600">Option D</label>
-                <input
-                  className="w-full mt-1"
-                  value={optionD}
-                  onChange={(e) => setOptionD(e.target.value)}
-                />
+                <input className="w-full mt-1" value={optionD} onChange={(e) => setOptionD(e.target.value)} />
               </div>
             </div>
 
-            {/* Correct option */}
+            {/* Correct */}
             <div>
               <label className="text-sm text-gray-600">Correct Option</label>
-              <select
-                className="w-full mt-1"
-                value={correct}
-                onChange={(e) => setCorrect(e.target.value as any)}
-              >
+              <select className="w-full mt-1" value={correct} onChange={(e) => setCorrect(e.target.value as any)}>
                 <option value="A">A</option>
                 <option value="B">B</option>
                 <option value="C">C</option>
@@ -167,11 +187,7 @@ export default function AdminMCQsPage() {
               />
             </div>
 
-            <button
-              className="btn btn-primary"
-              onClick={addMCQ}
-              disabled={loading}
-            >
+            <button className="btn btn-primary" onClick={addMCQ} disabled={loading}>
               {loading ? "Saving..." : "Add MCQ"}
             </button>
           </div>

@@ -1,118 +1,61 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
 
 export default function HomePage() {
-  const [loading, setLoading] = useState(true);
-  const [hasSession, setHasSession] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      setHasSession(!!data.session);
-      setLoading(false);
-    })();
-  }, []);
-
-  if (loading) {
-    return <main className="p-8">Loading...</main>;
-  }
-
-  // ✅ Logged-in view: "Continue"
-  if (hasSession) {
-    return (
-      <main className="max-w-4xl mx-auto p-6">
-        <div className="card card-body">
-          <h1 className="text-3xl font-bold">Welcome back 👋</h1>
-          <p className="text-gray-600 mt-2">
-            Continue from where you left off.
-          </p>
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Link href="/practice" className="btn btn-primary">
-              Continue Practice
-            </Link>
-            <Link href="/archive" className="btn btn-secondary">
-              Browse Archive
-            </Link>
-          </div>
-        </div>
-
-        <div className="mt-6 grid md:grid-cols-3 gap-4">
-          <div className="card card-body">
-            <div className="text-sm text-gray-500">Daily Practice</div>
-            <div className="text-lg font-semibold mt-1">MCQs + Mains</div>
-            <p className="text-gray-600 mt-2 text-sm">
-              Attempt questions in an exam-like flow.
-            </p>
-          </div>
-
-          <div className="card card-body">
-            <div className="text-sm text-gray-500">Current Affairs</div>
-            <div className="text-lg font-semibold mt-1">Date-wise notes</div>
-            <p className="text-gray-600 mt-2 text-sm">
-              Revise CA quickly with GS mapping.
-            </p>
-          </div>
-
-          <div className="card card-body">
-            <div className="text-sm text-gray-500">Analytics</div>
-            <div className="text-lg font-semibold mt-1">Track progress</div>
-            <p className="text-gray-600 mt-2 text-sm">
-              Accuracy, streak, and weak areas (coming next).
-            </p>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  // ✅ Logged-out view: clean landing (no duplicate nav buttons)
   return (
-    <main className="max-w-4xl mx-auto p-6">
-      <div className="card card-body">
-        <h1 className="text-4xl font-bold">UPSC Daily Trainer</h1>
-        <p className="text-gray-600 mt-3">
-          A structured daily system for UPSC preparation: Current Affairs + MCQs + Mains Answer Writing.
+    <main className="max-w-6xl mx-auto p-8">
+      {/* HERO */}
+      <section className="text-center py-16">
+        <h1 className="text-4xl md:text-5xl font-bold">
+          Daily Structured UPSC Practice
+        </h1>
+        <p className="text-gray-600 mt-6 text-lg max-w-2xl mx-auto">
+          Practice GS-wise MCQs, write Mains answers, browse date-wise Current
+          Affairs, save notes, and track weak areas — all in one place.
         </p>
 
-        <div className="mt-6 flex flex-wrap gap-3">
-          <Link href="/register" className="btn btn-primary">
-            Get Started
+        <div className="mt-8 flex justify-center gap-4 flex-wrap">
+          <Link href="/practice" className="btn btn-primary">
+            Start Practice
           </Link>
-          <Link href="/login" className="btn btn-secondary">
-            Login
+
+          <Link href="/current-affairs" className="btn btn-secondary">
+            Explore Current Affairs
+          </Link>
+
+          <Link href="/dashboard" className="btn btn-secondary">
+            Open Dashboard
           </Link>
         </div>
-      </div>
+      </section>
 
-      <div className="mt-6 grid md:grid-cols-3 gap-4">
+      {/* FEATURES */}
+      <section className="grid md:grid-cols-3 gap-6 mt-10">
         <div className="card card-body">
-          <div className="text-sm text-gray-500">Daily Practice</div>
-          <div className="text-lg font-semibold mt-1">MCQs + Mains</div>
-          <p className="text-gray-600 mt-2 text-sm">
-            Improve accuracy and answer writing with timed practice.
+          <h3 className="text-lg font-semibold">📅 Practice by Date</h3>
+          <p className="text-gray-600 mt-2">
+            Navigate previous and upcoming sets like an archive — no URL typing.
           </p>
         </div>
 
         <div className="card card-body">
-          <div className="text-sm text-gray-500">Current Affairs</div>
-          <div className="text-lg font-semibold mt-1">Mapped to GS</div>
-          <p className="text-gray-600 mt-2 text-sm">
-            Revise by date and GS paper (GS1–GS4).
+          <h3 className="text-lg font-semibold">🎯 GS + Subject Focus</h3>
+          <p className="text-gray-600 mt-2">
+            Filter by GS1–GS4 and subject (Polity, Economy, Environment, etc.).
           </p>
         </div>
 
         <div className="card card-body">
-          <div className="text-sm text-gray-500">Analytics</div>
-          <div className="text-lg font-semibold mt-1">Track progress</div>
-          <p className="text-gray-600 mt-2 text-sm">
-            Streak, attempts, and weak topics.
+          <h3 className="text-lg font-semibold">📊 Analytics + Notes</h3>
+          <p className="text-gray-600 mt-2">
+            Review explanations after submission, save notes, and track weak GS.
           </p>
         </div>
-      </div>
+      </section>
+
+      {/* FOOTER */}
+      <section className="text-center text-sm text-gray-500 mt-16">
+        Built for consistent UPSC preparation • Free for students
+      </section>
     </main>
   );
 }

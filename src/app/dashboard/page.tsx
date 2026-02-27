@@ -20,12 +20,10 @@ type Stat = {
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
-  // existing-style stats
   const [totalAttempts, setTotalAttempts] = useState(0);
   const [mainsCount, setMainsCount] = useState(0);
   const [accuracy, setAccuracy] = useState(0);
 
-  // new: GS stats
   const [gsStats, setGsStats] = useState<Stat[]>([]);
   const [weakest, setWeakest] = useState<Stat | null>(null);
 
@@ -40,7 +38,6 @@ export default function DashboardPage() {
         return;
       }
 
-      // MCQ attempts
       const { data: aData } = await supabase
         .from("mcq_attempts")
         .select("mcq_id,is_correct")
@@ -53,7 +50,6 @@ export default function DashboardPage() {
       setTotalAttempts(total);
       setAccuracy(total > 0 ? Math.round((correct / total) * 100) : 0);
 
-      // Mains submissions count
       const { count } = await supabase
         .from("mains_submissions")
         .select("id", { count: "exact", head: true })
@@ -61,7 +57,6 @@ export default function DashboardPage() {
 
       setMainsCount(count || 0);
 
-      // GS breakdown
       const mcqIds = Array.from(new Set(attempts.map((a) => a.mcq_id)));
       let mcqMap: Record<string, MCQMini> = {};
 
@@ -121,7 +116,6 @@ export default function DashboardPage() {
           <p>Loading...</p>
         ) : (
           <>
-            {/* Stat cards */}
             <div className="grid md:grid-cols-3 gap-4">
               <div className="bg-white p-4 rounded-xl shadow">
                 <h2 className="text-lg font-semibold">Total MCQs Attempted</h2>
@@ -139,7 +133,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Quick actions */}
             <div className="mt-8 grid md:grid-cols-2 gap-4">
               <Link className="card card-body hover:bg-gray-50 transition" href="/practice">
                 <div className="text-lg font-semibold">📝 Practice</div>
@@ -162,7 +155,6 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            {/* Weak areas */}
             <div className="mt-8 card card-body">
               <div className="text-lg font-semibold">GS-wise Snapshot</div>
 
@@ -181,16 +173,29 @@ export default function DashboardPage() {
                 {weakest ? (
                   <>
                     <b>Weakest GS right now:</b> {weakest.gs} ({weakest.accuracy}%)
-                    <span className="text-gray-600">
-                      {" "}
-                      — focus practice on {weakest.gs}.
-                    </span>
+                    <span className="text-gray-600"> — focus practice on {weakest.gs}.</span>
                   </>
                 ) : (
                   <span className="text-gray-600">Attempt some MCQs to see weak areas.</span>
                 )}
               </div>
             </div>
+
+            {weakest && (
+              <div className="mt-6 card card-body bg-yellow-50">
+                <div className="font-semibold">🎯 Suggested Focus: {weakest.gs}</div>
+                <p className="text-sm mt-2">
+                  Your accuracy is lowest in {weakest.gs}. Practice more from this paper to improve.
+                </p>
+
+                <Link
+                  href={`/practice?gs=${weakest.gs}`}
+                  className="btn btn-primary mt-3"
+                >
+                  Practice {weakest.gs}
+                </Link>
+              </div>
+            )}
           </>
         )}
       </main>

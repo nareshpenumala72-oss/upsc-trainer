@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AuthGuard from "@/components/AuthGuard";
@@ -7,9 +9,27 @@ import { supabase } from "@/lib/supabaseClient";
 
 type DailySet = { id: string; date: string };
 
-// This is the GS filter set you wanted
 const GS_OPTIONS = ["All", "GS1", "GS2", "GS3", "GS4"] as const;
 type GsFilter = (typeof GS_OPTIONS)[number];
+
+const SUBJECTS = [
+  "All",
+  "Polity",
+  "Governance",
+  "International Relations",
+  "Economy",
+  "Environment",
+  "Science & Tech",
+  "History",
+  "Geography",
+  "Society",
+  "Ethics",
+  "Security",
+  "Disaster Management",
+  "Agriculture",
+  "Misc",
+] as const;
+type SubjectFilter = (typeof SUBJECTS)[number];
 
 function localTodayISO() {
   const now = new Date();
@@ -20,7 +40,9 @@ function localTodayISO() {
 export default function PracticeHomePage() {
   const [sets, setSets] = useState<DailySet[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [gs, setGs] = useState<GsFilter>("All");
+  const [subject, setSubject] = useState<SubjectFilter>("All");
 
   useEffect(() => {
     (async () => {
@@ -36,12 +58,7 @@ export default function PracticeHomePage() {
     })();
   }, []);
 
-  // ✅ IMPORTANT:
-  // Daily sets are date containers. GS filtering is applied inside the day page
-  // (because MCQs belong to date via daily_set_items).
-  // Here we still show GS filter UI and pass it as query parameter to the day page.
   const filteredSets = useMemo(() => sets, [sets]);
-
   const today = localTodayISO();
 
   return (
@@ -51,28 +68,37 @@ export default function PracticeHomePage() {
           <div>
             <h1 className="text-2xl font-bold">Practice</h1>
             <p className="text-sm text-gray-600">
-              Choose a date to attempt MCQs + Mains. Use GS filter to focus on a paper.
+              Choose a date. Filter by GS paper and subject.
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">GS Filter:</span>
-            <select
-              className="w-auto"
-              value={gs}
-              onChange={(e) => setGs(e.target.value as GsFilter)}
-            >
-              {GS_OPTIONS.map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">GS:</span>
+              <select className="w-auto" value={gs} onChange={(e) => setGs(e.target.value as GsFilter)}>
+                {GS_OPTIONS.map((x) => (
+                  <option key={x} value={x}>
+                    {x}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Subject:</span>
+              <select className="w-auto" value={subject} onChange={(e) => setSubject(e.target.value as SubjectFilter)}>
+                {SUBJECTS.map((x) => (
+                  <option key={x} value={x}>
+                    {x}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
         <div className="mb-6 flex flex-wrap gap-2">
-          <Link className="btn btn-primary" href={`/day/${today}?gs=${gs}`}>
+          <Link className="btn btn-primary" href={`/day/${today}?gs=${gs}&subject=${encodeURIComponent(subject)}`}>
             Open Today
           </Link>
           <Link className="btn btn-secondary" href="/archive">
@@ -95,14 +121,15 @@ export default function PracticeHomePage() {
           {filteredSets.map((s) => (
             <Link
               key={s.id}
-              href={`/day/${s.date}?gs=${gs}`}
+              href={`/day/${s.date}?gs=${gs}&subject=${encodeURIComponent(subject)}`}
               className="block card card-body hover:bg-gray-50 transition"
             >
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-lg font-semibold">{s.date}</div>
                   <div className="text-sm text-gray-600">
-                    Open practice ({gs === "All" ? "All GS" : gs})
+                    Open practice ({gs === "All" ? "All GS" : gs}
+                    {subject !== "All" ? ` • ${subject}` : ""})
                   </div>
                 </div>
                 <div className="text-sm text-gray-500">→</div>
