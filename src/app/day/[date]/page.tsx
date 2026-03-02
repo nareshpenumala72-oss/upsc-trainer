@@ -281,54 +281,44 @@ export default function DailyModulePage() {
   }
 
   async function submitMCQs(toReview: boolean) {
-    setMsg(null);
-    if (!dailySetId) return;
-    if (!allAnswered) return setMsg("Please answer all questions.");
+  setMsg(null);
+  if (!dailySetId) return;
+  if (!allAnswered) return setMsg("Please answer all questions.");
 
-    const { data: auth } = await supabase.auth.getUser();
-    const userId = auth.user?.id;
-    if (!userId) return;
+  const { data: auth } = await supabase.auth.getUser();
+  const userId = auth.user?.id;
+  if (!userId) return;
 
-const rows = mcqs
-  .filter((q) => q.id && answers[q.id])
-  .map((q) => {
-    const selected = answers[q.id];
-    return {
-      user_id: userId,
-      daily_set_id: dailySetId,
-      mcq_id: q.id,
-      selected_option: selected,
-      is_correct: selected === q.correct_option,
-    };
-  });
+  const rows = mcqs
+    .filter((q) => q.id && answers[q.id])
+    .map((q) => {
+      const selected = answers[q.id];
+      return {
+        user_id: userId,
+        daily_set_id: dailySetId,
+        mcq_id: q.id,
+        selected_option: selected,
+        is_correct: selected === q.correct_option,
+      };
+    });
 
-    const { error: aErr } = await supabase.from("mcq_attempts").upsert(rows, {
+  const { error: aErr } = await supabase
+    .from("mcq_attempts")
+    .upsert(rows, {
       onConflict: "user_id,daily_set_id,mcq_id",
     });
-    if (aErr) return setMsg(aErr.message);
 
-     
-    // submission marker
-// submission marker
-// submission marker
-const { error: sErr } = await supabase
-  .from("mcq_attempts")
-  .insert({ user_id: userId, daily_set_id: dailySetId });
+  if (aErr) return setMsg(aErr.message);
 
-if (sErr && !String(sErr.message).toLowerCase().includes("duplicate")) {
-  return setMsg(sErr.message);
-}
+  if (mcqTimerRef.current) window.clearInterval(mcqTimerRef.current);
+  mcqTimerRef.current = null;
 
-    // stop timer
-    if (mcqTimerRef.current) window.clearInterval(mcqTimerRef.current);
-    mcqTimerRef.current = null;
-
-    if (toReview) {
-      router.push(`/day/${date}/review?gs=${gs}`);
-    } else {
-      setMsg("✅ MCQs submitted!");
-    }
+  if (toReview) {
+    router.push(`/day/${date}/review?gs=${gs}`);
+  } else {
+    setMsg("✅ MCQs submitted!");
   }
+}
 
   // MCQ Timer
   function startMcqTimer() {
