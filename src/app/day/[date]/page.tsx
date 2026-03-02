@@ -289,16 +289,18 @@ export default function DailyModulePage() {
     const userId = auth.user?.id;
     if (!userId) return;
 
-    const rows = mcqs.map((q) => {
-      const selected = answers[q.id];
-      return {
-        user_id: userId,
-        daily_set_id: dailySetId,
-        mcq_id: q.id,
-        selected_option: selected,
-        is_correct: selected === q.correct_option,
-      };
-    });
+const rows = mcqs
+  .filter((q) => q.id && answers[q.id])
+  .map((q) => {
+    const selected = answers[q.id];
+    return {
+      user_id: userId,
+      daily_set_id: dailySetId,
+      mcq_id: q.id,
+      selected_option: selected,
+      is_correct: selected === q.correct_option,
+    };
+  });
 
     const { error: aErr } = await supabase.from("mcq_attempts").upsert(rows, {
       onConflict: "user_id,daily_set_id,mcq_id",
