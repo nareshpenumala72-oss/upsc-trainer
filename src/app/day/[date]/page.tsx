@@ -305,14 +305,17 @@ export default function DailyModulePage() {
     });
     if (aErr) return setMsg(aErr.message);
 
+     
     // submission marker
-    const { error: sErr } = await supabase
-      .from("daily_mcq_submissions")
-      .insert({ user_id: userId, daily_set_id: dailySetId });
+// submission marker
+// submission marker
+const { error: sErr } = await supabase
+  .from("mcq_attempts")
+  .insert({ user_id: userId, daily_set_id: dailySetId });
 
-    if (sErr && !String(sErr.message).toLowerCase().includes("duplicate")) {
-      return setMsg(sErr.message);
-    }
+if (sErr && !String(sErr.message).toLowerCase().includes("duplicate")) {
+  return setMsg(sErr.message);
+}
 
     // stop timer
     if (mcqTimerRef.current) window.clearInterval(mcqTimerRef.current);
